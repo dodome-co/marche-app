@@ -14,7 +14,9 @@ def load_user(user_id: str):
 
 
 def home_url(user: User) -> str:
-    """ログイン後の行き先。生産者の画面ができたら、ロールで行き先を分ける"""
+    """ログイン後の行き先。生産者は出品管理、それ以外はトップ"""
+    if user.is_producer:
+        return url_for("producer.index")
     return url_for("shop.index")
 
 

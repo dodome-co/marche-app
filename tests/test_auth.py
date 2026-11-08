@@ -74,6 +74,56 @@ def test_ログイン後のnextに外部URLは使えない(client, customer):
     assert response.headers["Location"] == "/"
 
 
+def test_生産者として登録すると出品管理に移る(client):
+    response = register(client, "producer")
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/producer/products"
+
+
+def test_購入者として登録するとトップに移る(client):
+    response = register(client, "customer")
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/"
+
+
+def test_生産者は出品管理を開ける(client, producer, login):
+    login(producer)
+    response = client.get("/producer/products")
+    assert response.status_code == 200
+    assert "出品管理" in response.text
+
+
+def test_購入者は出品管理を開けない(client, customer, login):
+    login(customer)
+    response = client.get("/producer/products")
+    assert response.status_code == 403
+
+
+def test_未ログインで出品管理を開くとログイン画面へ移る(client):
+    response = client.get("/producer/products")
+    assert response.status_code == 302
+    location = response.headers["Location"]
+    assert location.startswith("/login")
+    assert "next=" in location
+
+
+def test_nextを付けてログインすると元のページに戻る(client, producer):
+    response = client.post(
+        "/login?next=/producer/products",
+        data={"email": producer.email, "password": "password"},
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/producer/products"
+
+
+def test_生産者にだけ出品管理のリンクが出る(client, producer, customer, login):
+    login(customer)
+    assert "出品管理" not in client.get("/").text
+    client.post("/logout")
+    login(producer)
+    assert "出品管理" in client.get("/").text
+
+
 def test_create_adminで管理者を作れる(app):
     result = app.test_cli_runner().invoke(
         args=[

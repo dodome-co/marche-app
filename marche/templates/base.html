@@ -14,6 +14,9 @@
       <ul>
         {% if current_user.is_authenticated %}
           <li>{{ current_user.name }}さん（{{ current_user.role_label }}）</li>
+          {% if current_user.is_producer %}
+            <li><a href="{{ url_for('producer.index') }}">出品管理</a></li>
+          {% endif %}
           <li>
             <form method="post" action="{{ url_for('auth.logout') }}" style="margin:0">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
