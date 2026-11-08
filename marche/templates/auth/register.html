@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% from "_form_errors.html" import field %}
+{% block content %}
+<h1>会員登録</h1>
+<form method="post" novalidate>
+  {{ form.hidden_tag() }}
+  {{ field(form.name) }}
+  {{ field(form.email) }}
+  {{ field(form.password) }}
+  <fieldset>
+    <legend>{{ form.role.label.text }}</legend>
+    {% for choice in form.role %}<label>{{ choice() }} {{ choice.label.text }}</label>{% endfor %}
+    {% for e in form.role.errors %}<small>{{ e }}</small>{% endfor %}
+  </fieldset>
+  <button type="submit">登録する</button>
+</form>
+{% endblock %}

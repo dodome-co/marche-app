@@ -1,0 +1,7 @@
+{% macro field(f) %}
+  <label>
+    {{ f.label.text }}
+    {% if f.errors %}{{ f(aria_invalid="true") }}{% else %}{{ f() }}{% endif %}
+    {% for e in f.errors %}<small>{{ e }}</small>{% endfor %}
+  </label>
+{% endmacro %}
