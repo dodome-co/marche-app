@@ -49,7 +49,26 @@
 
 ## 設計（Day4 以降に追記していく）
 
-- 仕様: `docs/spec/`
-- 画面一覧: `docs/design/screens.md`
-- データベース設計: `docs/design/database.md`
-- 用語: {{ 生産者、購入者、商品、カート、注文、注文明細 などの定義 }}
+- 仕様: `docs/spec/`。ユーザーストーリー: `docs/design/user-stories.md`、画面一覧: `docs/design/screens.md`、データベース設計: `docs/design/database.md`
+- 用語: 生産者（producer。商品を出品する）、購入者（customer）、管理者（admin。`flask create-admin` でだけ作る）、商品（products）、カート（セッションの `{"商品ID": 数量}`。テーブルにしない）、注文（orders。pending → paid / cancelled）、注文明細（order_items。注文時点の商品名と単価を持つ）
+
+### URL と認可
+
+- URL の接頭辞で対象を分ける。`/producer/` は生産者、`/orders/` はログインユーザー。値を変える操作（削除、公開の切り替え、カート、注文の作成・取り消し）は全て POST
+- 商品の編集・削除・公開の切り替えは `producer_id` が自分か確かめ、違えば 403。非公開の商品の詳細は、出品者と管理者以外には 404
+- 注文の閲覧・完了・中断は、注文した本人（`user_id`）と管理者だけ。他人は 403
+
+### データ
+
+- 出品者は `products.producer_id`、注文者は `orders.user_id`（どちらも users.id）。`role` と `status` は文字列で保存し、Python では StrEnum（`Role`、`OrderStatus`）で扱う
+- 金額は円の整数。注文の金額はサーバーが DB の価格で計算し、明細に注文時点の商品名と単価を保存する
+- 注文がある商品は削除させず、非公開にしてもらう。SQLite では外部キー制約が効かないので、ビューで先に確かめる
+- 在庫の `stock` は「いまある数」で、支払いが確定したときに減らす。表示と注文の作成では `marche/services/inventory.py` の `available_stock()`（stock − 35 分以内の支払い待ち）を使う
+- `paid` への更新は `status = pending` のときだけの条件付き更新にする（在庫を二重に減らさない）
+
+### 外部サービス
+
+- Stripe を呼ぶコードは `marche/services/payment.py` だけに書く（AI 機能を足すなら、Claude API は `marche/services/ai.py` だけ）
+- テストでは本物の API を呼ばず、`create_app({"PAYMENT_SERVICE": FakePayment()})` のように設定でフェイクに差し替える
+- Webhook（`POST /stripe/webhook`）だけ CSRF の対象外にし、Stripe の署名で確かめる
+- （AI 機能を足した場合）AI の出力はそのまま保存・公開しない。下書きとしてフォームに入れ、人が確認して「保存」を押したときだけ保存する
