@@ -3,11 +3,22 @@ from datetime import timedelta
 from sqlalchemy import func
 
 from marche.extensions import db
-from marche.models import Order, OrderItem, OrderStatus, Product, now_jst
+from marche.models import Order, OrderItem, OrderStatus, Product, User, now_jst
 
 # 支払い待ちの注文が、在庫を押さえておく時間（分）。
 # Stripe の Checkout Session の期限（最短30分）より少し長くしてある
 PENDING_MINUTES = 35
+
+# 1商品あたり1回に買える数。order_items の CHECK 制約（1〜10）と同じ値にする
+MAX_QUANTITY = 10
+
+# 非公開の商品と存在しない商品は同じメッセージにして、非公開の商品が「ある」ことを教えない
+UNAVAILABLE_MESSAGE = "購入できない商品がカートに入っています"
+INVALID_CART_MESSAGE = "カートの内容が正しくありません"
+
+
+class OrderError(Exception):
+    """注文を作れないときの例外。str(error) は、画面にそのまま出せる日本語のメッセージ"""
 
 
 def reserved_quantity(product: Product) -> int:
@@ -29,3 +40,82 @@ def reserved_quantity(product: Product) -> int:
 def available_stock(product: Product) -> int:
     """いま買える数。在庫から、支払い待ちで押さえられている分を引く（0 未満にしない）"""
     return max(product.stock - reserved_quantity(product), 0)
+
+
+def _normalize_cart(cart: dict) -> dict[int, int]:
+    """カートを {商品ID(int): 数量(int)} にそろえる。形がおかしければ OrderError"""
+    if not cart:
+        raise OrderError("カートに商品がありません")
+    items: dict[int, int] = {}
+    for key, quantity in cart.items():
+        # Flask のセッションは JSON で保存するので、商品ID のキーは文字列で戻ってくる
+        if isinstance(key, bool) or not isinstance(key, int | str):
+            raise OrderError(INVALID_CART_MESSAGE)
+        try:
+            product_id = int(key)
+        except ValueError:
+            raise OrderError(INVALID_CART_MESSAGE) from None
+        # 数量は整数だけ。bool は int の仲間なので除く。金額などを混ぜた値もここで弾く
+        if isinstance(quantity, bool) or not isinstance(quantity, int):
+            raise OrderError(INVALID_CART_MESSAGE)
+        if product_id in items:  # 3 と "3" のように、同じ商品が2回入っている
+            raise OrderError(INVALID_CART_MESSAGE)
+        items[product_id] = quantity
+    return items
+
+
+def create_order(user: User, cart: dict) -> Order:
+    """カート（{商品ID: 数量}）から、支払い待ちの注文を作る。
+
+    先に全ての商品を確認し、1つでも駄目なら OrderError を投げる。
+    そのときは DB にもセッションにも何も追加しない。確認が全部通ったら、1回だけ commit する。
+    単価と商品名は、DB の商品から取る。金額は引数で受け取らない。
+    在庫はここでは減らさない（支払いが確定したときに減らす）。
+    """
+    items = _normalize_cart(cart)
+
+    products = {
+        product.id: product
+        for product in db.session.scalars(
+            db.select(Product).where(Product.id.in_(list(items)))
+        )
+    }
+    lines: list[tuple[Product, int]] = []
+    for product_id, quantity in items.items():
+        product = products.get(product_id)
+        if product is None or not product.is_published:
+            raise OrderError(UNAVAILABLE_MESSAGE)
+        if not 1 <= quantity <= MAX_QUANTITY:
+            raise OrderError(
+                f"「{product.name}」の数量は1〜{MAX_QUANTITY}で指定してください"
+            )
+        available = available_stock(product)
+        if available <= 0:
+            raise OrderError(f"「{product.name}」は売り切れです")
+        if quantity > available:
+            raise OrderError(
+                f"「{product.name}」の在庫が足りません（いま買える数: {available}）"
+            )
+        lines.append((product, quantity))
+
+    # ここから先は、確認が全部通ったときだけ
+    order = Order(user_id=user.id, status=OrderStatus.PENDING, total_amount=0)
+    for product, quantity in lines:
+        subtotal = product.price * quantity
+        order.items.append(
+            OrderItem(
+                product_id=product.id,
+                product_name=product.name,
+                unit_price=product.price,
+                quantity=quantity,
+                subtotal=subtotal,
+            )
+        )
+        order.total_amount += subtotal
+    db.session.add(order)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    return order
