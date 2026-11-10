@@ -1,7 +1,12 @@
+from pathlib import Path
+
 import pytest
 
 from marche.extensions import db
-from marche.models import Product
+from marche.models import Order, OrderItem, OrderStatus, Product
+from marche.uploads import save_image
+
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 16
 
 
 def form_data(**overrides):
@@ -131,6 +136,74 @@ def test_商品を削除できる(client, producer, make_product, login):
     response = client.post(f"/producer/products/{product.id}/delete")
     assert response.status_code == 302
     assert all_products() == []
+
+
+@pytest.mark.parametrize(
+    "status", [OrderStatus.PENDING, OrderStatus.PAID, OrderStatus.CANCELLED]
+)
+def test_注文がある商品は削除できない(
+    client, producer, customer, make_product, make_order, login, status
+):
+    # 支払い待ち・支払い済み・キャンセルのどれでも、明細があれば削除させない
+    product = make_product(producer, name="注文された商品")
+    make_order(customer, [(product, 1)], status=status)
+    login(producer)
+    response = client.post(
+        f"/producer/products/{product.id}/delete", follow_redirects=True
+    )
+    assert response.status_code == 200
+    assert "注文がある商品は削除できません。非公開にしてください" in response.text
+    assert "注文された商品" in response.text  # 一覧に残っている
+    assert len(all_products()) == 1
+    assert len(db.session.scalars(db.select(OrderItem)).all()) == 1
+    assert len(db.session.scalars(db.select(Order)).all()) == 1
+
+
+def test_注文がある商品を削除しようとしても写真は消えない(
+    app, client, producer, customer, make_product, make_order, login
+):
+    product = make_product(producer)
+    product.image_filename = save_image(JPEG, "image/jpeg")
+    db.session.commit()
+    make_order(customer, [(product, 1)])
+    login(producer)
+    client.post(f"/producer/products/{product.id}/delete")
+    assert len(list(Path(app.config["UPLOAD_FOLDER"]).glob("*"))) == 1
+
+
+def test_注文のない商品は同じ生産者の別の商品に注文があっても削除できる(
+    client, producer, customer, make_product, make_order, login
+):
+    ordered = make_product(producer, name="注文された商品")
+    free = make_product(producer, name="注文のない商品")
+    make_order(customer, [(ordered, 1)])
+    login(producer)
+    response = client.post(f"/producer/products/{free.id}/delete")
+    assert response.status_code == 302
+    assert [p.name for p in all_products()] == ["注文された商品"]
+
+
+def test_注文があっても非公開にはできる(
+    client, producer, customer, make_product, make_order, login
+):
+    product = make_product(producer, is_published=True)
+    make_order(customer, [(product, 1)])
+    login(producer)
+    client.post(f"/producer/products/{product.id}/toggle")
+    db.session.refresh(product)
+    assert product.is_published is False
+
+
+def test_他の生産者の注文がある商品の削除は403のまま(
+    client, producer, other_producer, customer, make_product, make_order, login
+):
+    # 所有者の確認が先。他人の商品に注文があることは教えない
+    product = make_product(other_producer)
+    make_order(customer, [(product, 1)])
+    login(producer)
+    response = client.post(f"/producer/products/{product.id}/delete")
+    assert response.status_code == 403
+    assert "注文がある" not in response.text
 
 
 # --- 権限なし ---
