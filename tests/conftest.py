@@ -2,19 +2,21 @@ import pytest
 
 from marche import create_app
 from marche.extensions import db
-from marche.models import Role, User
+from marche.models import Product, Role, User
 
 # 本物の外部サービス（Stripe、拡張で足す Claude API）は、テストでは呼ばない。
 # 決済の章（と AI の拡張）で、ここにフェイク（偽物）のクラスを足し、create_app() の設定で差し替える。
 
 
 @pytest.fixture
-def app():
+def app(tmp_path):
     app = create_app(
         {
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
             "WTF_CSRF_ENABLED": False,
+            # テストの写真が marche/static/uploads に溜まらないように、一時フォルダーに置く
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
         }
     )
     with app.app_context():
@@ -54,6 +56,18 @@ def other_producer(app):
 @pytest.fixture
 def admin(app):
     return _make_user(Role.ADMIN, "admin@example.com", "管理者")
+
+
+@pytest.fixture
+def make_product(app):
+    def _make_product(owner, name="ほうれん草 1束", **kwargs):
+        values = {"price": 200, "stock": 10, "is_published": False} | kwargs
+        product = Product(producer_id=owner.id, name=name, **values)
+        db.session.add(product)
+        db.session.commit()
+        return product
+
+    return _make_product
 
 
 @pytest.fixture

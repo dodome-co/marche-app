@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_form_errors.html" import field %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="post" enctype="multipart/form-data" novalidate>
+  {{ form.hidden_tag() }}
+  {{ field(form.name) }}
+  {{ field(form.price) }}
+  {{ field(form.stock) }}
+  {{ field(form.description) }}
+  {% if product and product.image_filename %}
+    <figure>
+      <img src="{{ url_for('static', filename='uploads/' ~ product.image_filename) }}" alt="{{ product.name }}" style="max-width:240px">
+      <figcaption>今の写真です。新しい写真を選ぶと差し替わります。</figcaption>
+    </figure>
+  {% endif %}
+  <label>
+    {{ form.image.label.text }}（JPEG・PNG・WebP、5MBまで）
+    {% if form.image.errors %}
+      {{ form.image(accept="image/jpeg,image/png,image/webp", aria_invalid="true") }}
+    {% else %}
+      {{ form.image(accept="image/jpeg,image/png,image/webp") }}
+    {% endif %}
+    {% for e in form.image.errors %}<small>{{ e }}</small>{% endfor %}
+  </label>
+  <label>{{ form.is_published() }} {{ form.is_published.label.text }}</label>
+  <button type="submit">{{ submit_label }}</button>
+</form>
+<p><a href="{{ url_for('producer.index') }}">出品管理に戻る</a></p>
+{% endblock %}
