@@ -90,7 +90,7 @@ erDiagram
 |-|-|-|-|
 | id | Integer | PK | |
 | user_id | Integer | not null, FK → users.id（RESTRICT）, index | 注文した人。本人チェックに使う |
-| status | String(20) | not null, default `pending`, index | `pending`（支払い待ち）/ `paid`（支払い済み）/ `cancelled`（取り消し） |
+| status | String(20) | not null, default `pending`, index | `pending`（支払い待ち）/ `paid`（支払い済み）/ `cancelled`（キャンセル） |
 | total_amount | Integer | not null, CHECK ≥ 0 | 合計（円）。明細からサーバーで計算した値 |
 | stripe_checkout_session_id | String(255) | null 可, unique | Checkout Session の ID（`cs_test_...`）。注文を作ってからセッションを作るので、最初は NULL。Webhook と完了ページで注文と照らし合わせる |
 | stripe_payment_intent_id | String(255) | null 可 | PaymentIntent の ID。支払いが確定したときに保存する。返金（拡張 E2）で使う |

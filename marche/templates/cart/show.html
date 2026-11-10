@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}カート - はちまん産直マルシェ{% endblock %}
+{% block content %}
+<h1>カート</h1>
+{% if lines %}
+<div class="overflow-auto">
+  <table>
+    <thead>
+      <tr>
+        <th>商品名</th>
+        <th>単価</th>
+        <th>数量</th>
+        <th>小計</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td><a href="{{ url_for('shop.show', product_id=line.product.id) }}">{{ line.product.name }}</a></td>
+        <td>{{ line.product.price|yen }}</td>
+        <td>
+          <form method="post" action="{{ url_for('cart.update', product_id=line.product.id) }}" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="number" name="quantity" value="{{ line.quantity }}" min="0" max="{{ line.limit }}" required style="width:6rem; display:inline-block">
+            <button type="submit" class="secondary outline" style="width:auto">変更</button>
+          </form>
+          <small>0 にすると外れます</small>
+          {% if line.limit == 0 %}
+            <br><small>売り切れです。数量を0にして外してください</small>
+          {% elif line.quantity > line.limit %}
+            <br><small>在庫が足りません（いま買える数: {{ line.limit }}）</small>
+          {% endif %}
+        </td>
+        <td>{{ line.subtotal|yen }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="3">合計</th>
+        <th>{{ total|yen }}</th>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{% if current_user.is_authenticated %}
+<form method="post" action="{{ url_for('orders.create') }}" onsubmit="this.querySelector('button').disabled = true">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit">注文して支払いへ進む</button>
+</form>
+{% else %}
+<a href="{{ url_for('auth.login', next=url_for('cart.show')) }}" role="button">ログインして注文する</a>
+{% endif %}
+{% else %}
+<p>カートは空です。</p>
+{% endif %}
+<p><a href="{{ url_for('shop.index') }}">商品一覧に戻る</a></p>
+{% endblock %}
