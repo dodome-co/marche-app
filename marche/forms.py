@@ -111,3 +111,11 @@ class ProductForm(FlaskForm):
         field.data.seek(0)
         if detect_media_type(data) is None:
             raise ValidationError("写真は JPEG・PNG・WebP の画像を選んでください")
+
+
+class CartForm(FlaskForm):
+    # 数量だけを受け取る。金額は受け取らない（単価は DB の商品から取る）。
+    # 範囲（1〜min(10, いま買える数)）は、いま買える数が要るのでビューで確かめる
+    quantity = WholeNumberField(
+        "数量", validators=[InputRequired(message="数量を入力してください")]
+    )

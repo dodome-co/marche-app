@@ -13,6 +13,18 @@
 <p>
   {% if stock > 0 %}いま買える数: {{ stock }}{% else %}<strong>売り切れ</strong>{% endif %}
 </p>
+{% if product.is_published and max_quantity > 0 %}
+<form method="post" action="{{ url_for('cart.add', product_id=product.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>
+    数量
+    <select name="quantity">
+      {% for n in range(1, max_quantity + 1) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">カートに入れる</button>
+</form>
+{% endif %}
 {% if product.description %}
   <p style="white-space: pre-line">{{ product.description }}</p>
 {% endif %}

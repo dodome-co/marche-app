@@ -12,6 +12,7 @@
     <nav>
       <ul><li><a href="{{ url_for('shop.index') }}"><strong>はちまん産直マルシェ</strong></a></li></ul>
       <ul>
+        <li><a href="{{ url_for('cart.show') }}">カート</a></li>
         {% if current_user.is_authenticated %}
           <li>{{ current_user.name }}さん（{{ current_user.role_label }}）</li>
           {% if current_user.is_producer %}

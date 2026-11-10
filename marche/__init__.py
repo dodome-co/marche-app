@@ -1,9 +1,12 @@
 import logging
 import os
+from datetime import datetime
 
 from flask import Flask, render_template
 
 from marche.extensions import csrf, db, login_manager, migrate
+
+WEEKDAYS = "月火水木金土日"  # datetime.weekday() は月曜が 0
 
 
 def create_app(config=None):
@@ -33,9 +36,9 @@ def create_app(config=None):
     login_manager.login_view = "auth.login"
     login_manager.login_message = "ログインしてください"
 
-    from marche.views import auth, producer, shop
+    from marche.views import auth, cart, orders, producer, shop
 
-    for module in (auth, producer, shop):
+    for module in (auth, cart, orders, producer, shop):
         app.register_blueprint(module.bp)
 
     from marche import commands
@@ -45,6 +48,13 @@ def create_app(config=None):
     @app.template_filter("yen")
     def yen(value: int) -> str:
         return f"{value:,}円"
+
+    @app.template_filter("datetime_jp")
+    def datetime_jp(value: datetime) -> str:
+        """日時を「11月14日(土) 10:00」の形にする"""
+        return (
+            f"{value.month}月{value.day}日({WEEKDAYS[value.weekday()]}) {value:%H:%M}"
+        )
 
     @app.errorhandler(403)
     def forbidden(error):

@@ -4,7 +4,7 @@ from sqlalchemy.orm import joinedload
 
 from marche.extensions import db
 from marche.models import Product
-from marche.services.inventory import available_stock
+from marche.services.inventory import available_stock, purchase_limit
 
 bp = Blueprint("shop", __name__)
 
@@ -36,5 +36,8 @@ def show(product_id: int):
     if not can_view(product):
         abort(404)  # 403 ではなく 404。非公開の商品が「ある」ことも教えない
     return render_template(
-        "shop/show.html", product=product, stock=available_stock(product)
+        "shop/show.html",
+        product=product,
+        stock=available_stock(product),
+        max_quantity=purchase_limit(product),  # カートに入れる数量の選択肢の上限
     )

@@ -119,3 +119,11 @@ def create_order(user: User, cart: dict) -> Order:
         db.session.rollback()
         raise
     return order
+
+
+def purchase_limit(product: Product) -> int:
+    """1回に買える数の上限。min(MAX_QUANTITY, いま買える数)。
+
+    商品詳細の数量の選択肢、カートへの追加・変更の確認で、同じ値を使う。
+    """
+    return min(MAX_QUANTITY, available_stock(product))

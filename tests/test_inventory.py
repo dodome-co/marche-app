@@ -1,12 +1,15 @@
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import event
 
 from marche.extensions import db
 from marche.models import OrderStatus, now_jst
 from marche.services.inventory import (
+    MAX_QUANTITY,
     PENDING_MINUTES,
     available_stock,
+    purchase_limit,
     reserved_quantity,
 )
 
@@ -143,3 +146,16 @@ def test_押さえた数はSQLを1回で数える(producer, customer, make_produ
         event.remove(db.engine, "before_cursor_execute", record)
     assert len(statements) == 1
     assert "sum(" in statements[0].lower()
+
+
+@pytest.mark.parametrize(
+    ("stock", "reserved", "expected"),
+    [(50, 0, MAX_QUANTITY), (3, 0, 3), (5, 3, 2), (10, 0, 10), (12, 1, 10), (0, 0, 0)],
+)
+def test_1回に買える数はmin_10_買える数(
+    producer, customer, make_product, make_order, stock, reserved, expected
+):
+    product = make_product(producer, stock=stock)
+    if reserved:
+        make_order(customer, [(product, reserved)])
+    assert purchase_limit(product) == expected

@@ -44,6 +44,33 @@ def customer(app):
 
 
 @pytest.fixture
+def other_customer(app):
+    return _make_user(Role.CUSTOMER, "other-customer@example.com", "別の購入者")
+
+
+@pytest.fixture
+def set_cart(client):
+    """セッションのカートを直接書き込む。cart は {"商品ID": 数量}"""
+
+    def _set_cart(cart):
+        with client.session_transaction() as sess:
+            sess["cart"] = cart
+
+    return _set_cart
+
+
+@pytest.fixture
+def read_cart(client):
+    """セッションのカートを読む。無ければ None"""
+
+    def _read_cart():
+        with client.session_transaction() as sess:
+            return sess.get("cart")
+
+    return _read_cart
+
+
+@pytest.fixture
 def producer(app):
     return _make_user(Role.PRODUCER, "producer@example.com", "高原ファーム")
 
