@@ -2,5 +2,25 @@
 {% block content %}
 <h1>はちまん産直マルシェ</h1>
 <p>八幡平の生産者が育てた農産物や加工品を、直接買えるお店です。</p>
-<p>商品の一覧は準備中です。</p>
+{% if products %}
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:1rem">
+  {% for product in products %}
+  <article style="margin:0">
+    {% if product.image_filename %}
+      <a href="{{ url_for('shop.show', product_id=product.id) }}">
+        <img src="{{ url_for('static', filename='uploads/' ~ product.image_filename) }}" alt="{{ product.name }}" loading="lazy" style="width:100%; height:160px; object-fit:cover">
+      </a>
+    {% endif %}
+    <h3><a href="{{ url_for('shop.show', product_id=product.id) }}">{{ product.name }}</a></h3>
+    <p>{{ product.price|yen }}</p>
+    <p><small>{{ product.producer.name }}</small></p>
+    <p>
+      {% if stocks[product.id] > 0 %}在庫 {{ stocks[product.id] }}{% else %}<strong>売り切れ</strong>{% endif %}
+    </p>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p>いま買える商品はありません。</p>
+{% endif %}
 {% endblock %}
