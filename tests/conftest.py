@@ -2,7 +2,7 @@ import pytest
 
 from marche import create_app
 from marche.extensions import db
-from marche.models import Product, Role, User
+from marche.models import Order, OrderItem, OrderStatus, Product, Role, User
 
 # 本物の外部サービス（Stripe、拡張で足す Claude API）は、テストでは呼ばない。
 # 決済の章（と AI の拡張）で、ここにフェイク（偽物）のクラスを足し、create_app() の設定で差し替える。
@@ -68,6 +68,33 @@ def make_product(app):
         return product
 
     return _make_product
+
+
+@pytest.fixture
+def make_order(app):
+    """注文を作る。items は (商品, 数量) の並び。金額は商品の今の価格から入れる"""
+
+    def _make_order(user, items, status=OrderStatus.PENDING, created_at=None):
+        order = Order(user_id=user.id, status=status, total_amount=0)
+        if created_at is not None:
+            order.created_at = created_at
+        for product, quantity in items:
+            subtotal = product.price * quantity
+            order.items.append(
+                OrderItem(
+                    product_id=product.id,
+                    product_name=product.name,
+                    unit_price=product.price,
+                    quantity=quantity,
+                    subtotal=subtotal,
+                )
+            )
+            order.total_amount += subtotal
+        db.session.add(order)
+        db.session.commit()
+        return order
+
+    return _make_order
 
 
 @pytest.fixture
