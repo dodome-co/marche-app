@@ -2,7 +2,7 @@
 {% block title %}{{ product.name }} - はちまん産直マルシェ{% endblock %}
 {% block content %}
 {% if not product.is_published %}
-  <article><small>この商品は非公開です（あなたと管理者だけが見られます）</small></article>
+  <article><small>この商品は非公開です（出品者と管理者だけが見られます）</small></article>
 {% endif %}
 <h1>{{ product.name }}</h1>
 {% if product.image_filename %}

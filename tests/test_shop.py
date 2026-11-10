@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from marche.extensions import db
 from marche.models import Order, OrderItem, Product, Role, User, now_jst
+from marche.services.inventory import PENDING_MINUTES
 from marche.uploads import save_image
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 16
@@ -27,6 +28,19 @@ def test_公開中の商品だけが一覧に出る(client, producer, other_prod
     assert "公開のにんじん" in response.text
     assert "他の農園のりんご" in response.text
     assert "非公開のだいこん" not in response.text
+
+
+@pytest.mark.parametrize("role", ["producer", "admin", "customer"])
+def test_ログイン中でも非公開の商品は一覧に出ない(
+    client, request, login, producer, make_product, role
+):
+    # 出品した本人や管理者は詳細は見られるが、一覧には公開中の商品だけが出る
+    make_product(producer, name="非公開のだいこん", is_published=False)
+    make_product(producer, name="公開のにんじん", is_published=True)
+    login(request.getfixturevalue(role))
+    text = client.get("/").text
+    assert "公開のにんじん" in text
+    assert "非公開のだいこん" not in text
 
 
 def test_一覧には商品名と価格と生産者名と在庫が出る(client, producer, make_product):
@@ -58,11 +72,11 @@ def test_35分を過ぎた支払い待ちは一覧の在庫を減らさない(
     client, producer, customer, make_product, make_order
 ):
     product = make_product(producer, stock=10, is_published=True)
-    make_order(customer, [(product, 3)], created_at=minutes_ago(36))
+    make_order(customer, [(product, 3)], created_at=minutes_ago(PENDING_MINUTES + 1))
     assert "在庫 10" in client.get("/").text
 
 
-def test_売り切れでなくなるまで支払い待ちが全部を押さえると売り切れ(
+def test_支払い待ちが在庫を全部押さえると売り切れ(
     client, producer, customer, make_product, make_order
 ):
     product = make_product(producer, stock=3, is_published=True)
@@ -81,7 +95,7 @@ def test_一覧は新しい順に並ぶ(client, producer, make_product):
     assert text.index("新しい商品") < text.index("古い商品")
 
 
-def test_写真があれば一覧に出て_無ければ出ない(client, producer, make_product):
+def test_写真があれば一覧に出る(client, producer, make_product):
     make_product(producer, name="写真つき", is_published=True, image_filename="abc.jpg")
     assert "/static/uploads/abc.jpg" in client.get("/").text
 
@@ -295,13 +309,29 @@ def test_seedは既存のデータと写真を消す(
     assert list(upload_folder.glob("*")) == []
 
 
-def test_seedは確認で断ると何も消さない(app, customer):
+def test_seedは確認で断ると何も消さない(
+    app, customer, producer, make_product, make_order
+):
+    product = make_product(producer, name="消えてはいけない商品")
+    product.image_filename = save_image(JPEG, "image/jpeg")
+    db.session.commit()
+    make_order(customer, [(product, 1)])
+    customer_email = customer.email
+    upload_folder = Path(app.config["UPLOAD_FOLDER"])
+    db.session.expunge_all()
+
     result = run_seed(app, input="n\n")
+
     assert result.exit_code != 0
+    assert db.session.scalar(db.select(User).filter_by(email=customer_email))
+    assert db.session.scalar(db.select(Product).filter_by(name="消えてはいけない商品"))
+    assert len(db.session.scalars(db.select(Order)).all()) == 1
+    assert len(db.session.scalars(db.select(OrderItem)).all()) == 1
+    assert len(list(upload_folder.glob("*"))) == 1
+    # 初期データも入っていない
     assert (
-        db.session.scalar(db.select(User).filter_by(email=customer.email)) is not None
+        db.session.scalar(db.select(User).filter_by(email="admin@example.com")) is None
     )
-    assert db.session.scalars(db.select(Product)).all() == []
 
 
 def test_seedは確認で答えれば実行される(app):
