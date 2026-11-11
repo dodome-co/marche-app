@@ -17,6 +17,10 @@ def create_app(config=None):
             "DATABASE_URL", "sqlite:///marche.sqlite"
         ),
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
+        STRIPE_SECRET_KEY=os.environ.get("STRIPE_SECRET_KEY", ""),
+        STRIPE_WEBHOOK_SECRET=os.environ.get("STRIPE_WEBHOOK_SECRET", ""),
+        # テストでフェイクを渡して差し替える。None なら本物（services/payment.py）を使う
+        PAYMENT_SERVICE=None,
         UPLOAD_FOLDER=os.path.join(app.root_path, "static", "uploads"),
         # 写真は 5MB まで。フォームの他の項目の分を足して、リクエスト全体は 6MB まで
         MAX_CONTENT_LENGTH=6 * 1024 * 1024,
@@ -35,6 +39,11 @@ def create_app(config=None):
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
     login_manager.login_message = "ログインしてください"
+
+    from marche.services import payment
+
+    # 外部サービスは extensions に入れる。views は current_app.extensions["payment"] 経由で呼ぶ
+    app.extensions["payment"] = app.config["PAYMENT_SERVICE"] or payment
 
     from marche.views import auth, cart, orders, producer, shop
 

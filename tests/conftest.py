@@ -5,11 +5,62 @@ from marche.extensions import db
 from marche.models import Order, OrderItem, OrderStatus, Product, Role, User
 
 # 本物の外部サービス（Stripe、拡張で足す Claude API）は、テストでは呼ばない。
-# 決済の章（と AI の拡張）で、ここにフェイク（偽物）のクラスを足し、create_app() の設定で差し替える。
+# create_app() の設定でフェイク（偽物）に差し替える（拡張で AI を足すときは、ここに FakeAI を足す）。
+
+
+class FakePayment:
+    """services/payment.py の代わりに使うフェイク。呼ばれた内容を記録し、決まった値を返す"""
+
+    def __init__(self):
+        self.created = []  # create_checkout_session に渡された注文の ID
+        self.sessions = {}  # retrieve_session が返す {session_id: Session のようなもの}
+        self.expired = []  # expire_session に渡された session_id
+        self.error = None  # 例外を入れておくと、どのメソッドもそれを投げる
+        # create_checkout_session に渡された注文の明細 {注文ID: [(商品名, 単価, 数量), ...]}
+        self.created_items = {}
+
+    def create_checkout_session(self, order):
+        if self.error:
+            raise self.error
+        self.created.append(order.id)
+        self.created_items[order.id] = [
+            (item.product_name, item.unit_price, item.quantity) for item in order.items
+        ]
+        session_id = f"cs_test_fake_{order.id}"
+        return session_id, f"https://checkout.stripe.test/pay/{session_id}"
+
+    def retrieve_session(self, session_id):
+        if self.error:
+            raise self.error
+        return self.sessions[session_id]
+
+    def expire_session(self, session_id):
+        if self.error:
+            raise self.error
+        self.expired.append(session_id)
+
+
+@pytest.fixture(autouse=True)
+def block_real_stripe(monkeypatch):
+    """どのテストでも、本物の Stripe を呼ばないようにする。
+
+    .env のキーが環境に残っていても、うっかり本物を呼ばない。
+    services/payment.py そのもののテストは、この差し替えを上書きして自分のフェイクを使う。
+    """
+
+    def blocked():
+        raise AssertionError("テストで本物の Stripe を呼ぼうとしました")
+
+    monkeypatch.setattr("marche.services.payment._client", blocked)
 
 
 @pytest.fixture
-def app(tmp_path):
+def fake_payment():
+    return FakePayment()
+
+
+@pytest.fixture
+def app(tmp_path, fake_payment):
     app = create_app(
         {
             "TESTING": True,
@@ -17,6 +68,7 @@ def app(tmp_path):
             "WTF_CSRF_ENABLED": False,
             # テストの写真が marche/static/uploads に溜まらないように、一時フォルダーに置く
             "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "PAYMENT_SERVICE": fake_payment,
         }
     )
     with app.app_context():
