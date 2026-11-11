@@ -8,7 +8,7 @@
   <p>支払い日時: {{ order.paid_at|datetime_jp }}</p>
 {% endif %}
 {% if is_pending %}
-  <article><small>お支払いの機能は準備中です。</small></article>
+  <article><small>お支払いが完了していません。</small></article>
 {% endif %}
 <div class="overflow-auto">
   <table>

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}お支払いの確認 - はちまん産直マルシェ{% endblock %}
+{% block content %}
+<h1>お支払いを確認しています</h1>
+<p>注文 {{ order.id }}</p>
+<p><a href="{{ url_for('orders.show', order_id=order.id) }}">注文の詳細を見る</a></p>
+{% endblock %}

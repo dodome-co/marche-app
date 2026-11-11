@@ -17,6 +17,7 @@ from marche.services.inventory import (
     PENDING_MINUTES,
     OrderError,
     available_stock,
+    cancel,
     create_order,
 )
 
@@ -384,3 +385,56 @@ def test_同じ商品が2回入っているとOrderError(customer, producer, mak
     with pytest.raises(OrderError):
         create_order(customer, {product.id: 1, str(product.id): 1})
     assert_nothing_created()
+
+
+# --- cancel（注文のキャンセル） ---
+
+
+def test_支払い待ちの注文はキャンセルできる(
+    customer, producer, make_product, make_order
+):
+    product = make_product(producer, stock=10, is_published=True)
+    order = make_order(customer, [(product, 3)])
+    assert cancel(order) is True
+    assert order.status == OrderStatus.CANCELLED
+
+
+def test_キャンセルすると押さえていた在庫が戻る(
+    customer, producer, make_product, make_order
+):
+    product = make_product(producer, stock=10, is_published=True)
+    order = make_order(customer, [(product, 3)])
+    assert available_stock(product) == 7
+    cancel(order)
+    assert available_stock(product) == 10
+    db.session.refresh(product)
+    assert product.stock == 10  # stock そのものは変えない
+
+
+def test_2回目のキャンセルはFalse(customer, producer, make_product, make_order):
+    product = make_product(producer, stock=10, is_published=True)
+    order = make_order(customer, [(product, 3)])
+    assert cancel(order) is True
+    assert cancel(order) is False
+    assert order.status == OrderStatus.CANCELLED
+
+
+@pytest.mark.parametrize("status", [OrderStatus.PAID, OrderStatus.CANCELLED])
+def test_支払い待ち以外の注文はキャンセルされない(
+    customer, producer, make_product, make_order, status
+):
+    product = make_product(producer, stock=10, is_published=True)
+    order = make_order(customer, [(product, 3)], status=status)
+    assert cancel(order) is False
+    assert order.status == status
+
+
+def test_キャンセルしても他の注文は変わらない(
+    customer, producer, make_product, make_order
+):
+    product = make_product(producer, stock=10, is_published=True)
+    target = make_order(customer, [(product, 2)])
+    other = make_order(customer, [(product, 3)])
+    cancel(target)
+    db.session.refresh(other)
+    assert other.status == OrderStatus.PENDING

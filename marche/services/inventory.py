@@ -127,3 +127,19 @@ def purchase_limit(product: Product) -> int:
     商品詳細の数量の選択肢、カートへの追加・変更の確認で、同じ値を使う。
     """
     return min(MAX_QUANTITY, available_stock(product))
+
+
+def cancel(order: Order) -> bool:
+    """支払い待ちの注文をキャンセルする。キャンセルできたら True。
+
+    「読んで、pending ならキャンセルして保存」と2段階にせず、1つの UPDATE にする。
+    Webhook や完了ページと同時に来ても、支払い済みの注文をキャンセルにしないため。
+    """
+    result = db.session.execute(
+        db.update(Order)
+        .where(Order.id == order.id, Order.status == OrderStatus.PENDING)
+        .values(status=OrderStatus.CANCELLED)
+    )
+    db.session.commit()
+    db.session.refresh(order)
+    return result.rowcount == 1
