@@ -12,6 +12,10 @@ PENDING_MINUTES = 35
 # 1商品あたり1回に買える数。order_items の CHECK 制約（1〜10）と同じ値にする
 MAX_QUANTITY = 10
 
+# 1人が同時に持てる支払い待ちの注文の数。
+# 上限が無いと、払わない注文を繰り返して、全商品の在庫を押さえ続けられてしまう
+MAX_PENDING_ORDERS = 1
+
 # 非公開の商品と存在しない商品は同じメッセージにして、非公開の商品が「ある」ことを教えない
 UNAVAILABLE_MESSAGE = "購入できない商品がカートに入っています"
 INVALID_CART_MESSAGE = "カートの内容が正しくありません"
@@ -19,6 +23,17 @@ INVALID_CART_MESSAGE = "カートの内容が正しくありません"
 
 class OrderError(Exception):
     """注文を作れないときの例外。str(error) は、画面にそのまま出せる日本語のメッセージ"""
+
+
+class PendingOrderError(OrderError):
+    """すでに支払い待ちの注文があって、新しい注文を作れないとき。order が、その注文"""
+
+    def __init__(self, order: Order):
+        self.order = order
+        super().__init__(
+            f"お支払いが済んでいない注文（注文 {order.id}）があります。"
+            "お支払いを済ませるか、取り消してから、もう一度ご注文ください"
+        )
 
 
 def reserved_quantity(product: Product) -> int:
@@ -73,6 +88,21 @@ def create_order(user: User, cart: dict) -> Order:
     在庫はここでは減らさない（支払いが確定したときに減らす）。
     """
     items = _normalize_cart(cart)
+
+    # すでに支払い待ち（在庫を押さえている35分以内）の注文があれば、新しく作らせない
+    since = now_jst() - timedelta(minutes=PENDING_MINUTES)
+    pending = db.session.scalars(
+        db.select(Order)
+        .where(
+            Order.user_id == user.id,
+            Order.status == OrderStatus.PENDING,
+            Order.created_at >= since,
+        )
+        .order_by(Order.id)
+        .limit(MAX_PENDING_ORDERS)
+    ).all()
+    if len(pending) >= MAX_PENDING_ORDERS:
+        raise PendingOrderError(pending[0])
 
     products = {
         product.id: product

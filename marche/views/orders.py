@@ -14,7 +14,7 @@ from marche.cart import clear_cart, get_cart
 from marche.extensions import db
 from marche.models import Order, OrderStatus
 from marche.services import inventory
-from marche.services.inventory import OrderError, create_order
+from marche.services.inventory import OrderError, PendingOrderError, create_order
 from marche.services.payment import PaymentError
 
 bp = Blueprint("orders", __name__, url_prefix="/orders")
@@ -46,6 +46,10 @@ def create():
     # 金額はフォームからも受け取らない。create_order が DB の価格で計算する
     try:
         order = create_order(current_user, get_cart())
+    except PendingOrderError as error:
+        # 支払い待ちの注文が残っている。その注文の中断ページで、取り消せるようにする
+        flash(str(error))
+        return redirect(url_for("orders.cancel", order_id=error.order.id))
     except OrderError as error:
         flash(str(error))
         return redirect(url_for("cart.show"))

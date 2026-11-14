@@ -13,9 +13,11 @@ from marche.models import (
     now_jst,
 )
 from marche.services.inventory import (
+    MAX_PENDING_ORDERS,
     MAX_QUANTITY,
     PENDING_MINUTES,
     OrderError,
+    PendingOrderError,
     available_stock,
     cancel,
     create_order,
@@ -438,3 +440,92 @@ def test_キャンセルしても他の注文は変わらない(
     cancel(target)
     db.session.refresh(other)
     assert other.status == OrderStatus.PENDING
+
+
+# --- 支払い待ちの注文は、1人1件まで ---
+
+
+def test_支払い待ちの上限は1件():
+    assert MAX_PENDING_ORDERS == 1
+
+
+def test_支払い待ちの注文があると新しい注文は作れない(
+    customer, producer, make_product, make_order
+):
+    product = make_product(producer, stock=10, is_published=True)
+    first = make_order(customer, [(product, 2)])
+    with pytest.raises(PendingOrderError) as error:
+        create_order(customer, {product.id: 1})
+    assert isinstance(error.value, OrderError)  # OrderError の仲間として扱える
+    assert error.value.order.id == first.id  # どの注文が残っているか分かる
+    assert f"注文 {first.id}" in str(error.value)
+    assert "取り消してから" in str(error.value)
+    assert (
+        len(db.session.scalars(db.select(Order)).all()) == 1
+    )  # 新しい注文は作られない
+
+
+def test_払わない注文を繰り返しても押さえられるのは1件分だけ(
+    customer, producer, make_product
+):
+    # 繰り返し注文して、全商品の在庫を押さえ続けることはできない
+    product = make_product(producer, stock=10, is_published=True)
+    create_order(customer, {product.id: 10})
+    for _ in range(5):
+        with pytest.raises(PendingOrderError):
+            create_order(customer, {product.id: 10})
+    assert available_stock(product) == 0  # 押さえているのは最初の1件だけ
+    assert len(db.session.scalars(db.select(Order)).all()) == 1
+
+
+def test_取り消したあとは注文し直せる(customer, producer, make_product, make_order):
+    product = make_product(producer, stock=10, is_published=True)
+    first = make_order(customer, [(product, 2)])
+    cancel(first)
+    assert create_order(customer, {product.id: 3}).status == OrderStatus.PENDING
+
+
+@pytest.mark.parametrize("status", [OrderStatus.PAID, OrderStatus.CANCELLED])
+def test_支払い済みとキャンセル済みの注文は上限に数えない(
+    customer, producer, make_product, make_order, status
+):
+    product = make_product(producer, stock=10, is_published=True)
+    make_order(customer, [(product, 2)], status=status)
+    assert create_order(customer, {product.id: 1}).status == OrderStatus.PENDING
+
+
+def test_35分を過ぎた支払い待ちは上限に数えない(
+    customer, producer, make_product, make_order
+):
+    # 在庫の押さえがもう外れている注文なので、新しく注文できる
+    product = make_product(producer, stock=10, is_published=True)
+    old = now_jst() - timedelta(minutes=PENDING_MINUTES + 1)
+    make_order(customer, [(product, 2)], created_at=old)
+    assert create_order(customer, {product.id: 1}).status == OrderStatus.PENDING
+
+
+def test_35分以内の支払い待ちは上限に数える(
+    customer, producer, make_product, make_order
+):
+    product = make_product(producer, stock=10, is_published=True)
+    recent = now_jst() - timedelta(minutes=PENDING_MINUTES - 1)
+    make_order(customer, [(product, 2)], created_at=recent)
+    with pytest.raises(PendingOrderError):
+        create_order(customer, {product.id: 1})
+
+
+def test_他の人の支払い待ちは上限に数えない(
+    customer, other_customer, producer, make_product, make_order
+):
+    product = make_product(producer, stock=10, is_published=True)
+    make_order(other_customer, [(product, 2)])
+    assert create_order(customer, {product.id: 3}).user_id == customer.id
+
+
+def test_空のカートの確認が先に働く(customer, producer, make_product, make_order):
+    product = make_product(producer, stock=10, is_published=True)
+    make_order(customer, [(product, 2)])
+    with pytest.raises(OrderError) as error:
+        create_order(customer, {})
+    assert not isinstance(error.value, PendingOrderError)
+    assert str(error.value) == "カートに商品がありません"

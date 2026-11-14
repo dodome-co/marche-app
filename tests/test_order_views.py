@@ -634,12 +634,14 @@ def test_存在しない注文の支払い完了ページは404(client, customer
 
 
 def test_注文ごとに別のSessionが保存され決済ページのURLも違う(
-    client, customer, products, login, set_cart, fake_payment
+    client, customer, other_customer, products, login, set_cart, fake_payment
 ):
     carrot, _ = products
-    login(customer)
     locations = []
-    for _ in range(2):
+    # 同じ人が支払い待ちの注文を2つ持つことはできないので、別の購入者が1つずつ注文する
+    for buyer in (customer, other_customer):
+        client.post("/logout")
+        login(buyer)
         set_cart({str(carrot.id): 1})
         response = client.post("/orders/")
         assert response.status_code == 303
@@ -893,3 +895,81 @@ def test_Sessionを保存できなかったときカートは空にならず注�
     assert failed.status == OrderStatus.CANCELLED  # 1回目（保存に失敗）
     assert succeeded.status == OrderStatus.PENDING  # 2回目（成功）
     assert succeeded.stripe_checkout_session_id == f"cs_test_fake_{succeeded.id}"
+
+
+# --- 支払い待ちの注文は、1人1件まで ---
+
+
+def test_支払い待ちの注文があると新しい注文は作られず中断ページへ移る(
+    client, customer, products, login, set_cart, read_cart, fake_payment
+):
+    carrot, pork = products
+    login(customer)
+    set_cart({str(carrot.id): 2})
+    client.post("/orders/")
+    (first,) = all_orders()
+    set_cart({str(pork.id): 1})
+    response = client.post("/orders/")
+    # 残っている注文の中断ページへ案内する
+    assert response.status_code == 302
+    assert response.headers["Location"] == f"/orders/{first.id}/cancel"
+    assert fake_payment.created == [first.id]  # 決済ページは作られない
+    assert len(all_orders()) == 1
+    assert read_cart() == {str(pork.id): 1}  # カートは残る
+    text = client.get(response.headers["Location"]).text
+    assert f"お支払いが済んでいない注文（注文 {first.id}）があります" in text
+    assert "この注文を取り消す" in text  # そこから取り消せる
+
+
+def test_払わない注文を繰り返しても在庫を押さえ続けられない(
+    client, customer, products, login, set_cart, fake_payment
+):
+    pork = products[1]  # 在庫 5
+    login(customer)
+    for _ in range(4):
+        set_cart({str(pork.id): 5})
+        client.post("/orders/")
+    assert len(all_orders()) == 1
+    assert len(fake_payment.created) == 1
+    assert available_stock(pork) == 0  # 押さえているのは、最初の1件だけ
+
+
+def test_中断ページで取り消すと注文し直せる(
+    client, customer, products, login, set_cart, fake_payment
+):
+    carrot, _ = products
+    login(customer)
+    set_cart({str(carrot.id): 2})
+    client.post("/orders/")
+    (first,) = all_orders()
+    set_cart({str(carrot.id): 3})
+    blocked = client.post("/orders/")
+    assert blocked.status_code == 302
+    client.post(f"/orders/{first.id}/cancel")  # 案内された中断ページで取り消す
+    response = client.post("/orders/")
+    assert response.status_code == 303
+    assert len(all_orders()) == 2
+    assert fake_payment.expired == [f"cs_test_fake_{first.id}"]
+
+
+def test_他の購入者の支払い待ちは注文を妨げない(
+    client, customer, other_customer, products, login, set_cart
+):
+    carrot, _ = products
+    login(customer)
+    set_cart({str(carrot.id): 2})
+    client.post("/orders/")
+    client.post("/logout")
+    login(other_customer)
+    set_cart({str(carrot.id): 3})
+    assert client.post("/orders/").status_code == 303
+
+
+def test_支払い待ちの注文があっても空のカートは空のカートのメッセージ(
+    client, customer, products, make_order, login
+):
+    carrot, _ = products
+    make_order(customer, [(carrot, 1)])
+    login(customer)
+    response = client.post("/orders/", follow_redirects=True)
+    assert "カートに商品がありません" in response.text
